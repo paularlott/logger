@@ -14,15 +14,18 @@ import (
 const LevelTrace = slog.Level(-8)
 
 // SlogLogger wraps slog.Logger to implement the logger.Logger interface
+// SlogLogger wraps slog.Logger to implement the logger.Logger interface
 type SlogLogger struct {
-	logger *slog.Logger
+	logger         *slog.Logger
+	groupFieldName string
 }
 
 // Config for creating a new SlogLogger
 type Config struct {
-	Level  string    // "trace", "debug", "info", "warn", "error"
-	Format string    // "console" or "json"
-	Writer io.Writer // Output writer, defaults to os.Stdout
+	Level          string    // "trace", "debug", "info", "warn", "error"
+	Format         string    // "console" or "json"
+	Writer         io.Writer // Output writer, defaults to os.Stdout
+	GroupFieldName string    // Field name for groups, defaults to "_group"
 }
 
 // New creates a new SlogLogger with the given configuration
@@ -36,6 +39,9 @@ func New(cfg Config) logger.Logger {
 	if cfg.Level == "" {
 		cfg.Level = "info"
 	}
+	if cfg.GroupFieldName == "" {
+		cfg.GroupFieldName = "_group"
+	}
 
 	level := parseLevel(cfg.Level)
 	opts := &slog.HandlerOptions{
@@ -44,13 +50,14 @@ func New(cfg Config) logger.Logger {
 
 	var handler slog.Handler
 	if cfg.Format == "json" {
-		handler = NewJSONHandler(cfg.Writer, opts)
+		handler = slog.NewJSONHandler(cfg.Writer, opts)
 	} else {
-		handler = NewConsoleHandler(cfg.Writer, opts)
+		handler = NewConsoleHandler(cfg.Writer, opts, cfg.GroupFieldName)
 	}
 
 	return &SlogLogger{
-		logger: slog.New(handler),
+		logger:         slog.New(handler),
+		groupFieldName: cfg.GroupFieldName,
 	}
 }
 
@@ -97,40 +104,45 @@ func (l *SlogLogger) log(level slog.Level, msg string, keysAndValues ...any) {
 
 func (l *SlogLogger) With(key string, value any) logger.Logger {
 	return &SlogLogger{
-		logger: l.logger.With(key, value),
+		logger:         l.logger.With(key, value),
+		groupFieldName: l.groupFieldName,
 	}
 }
 
 func (l *SlogLogger) WithError(err error) logger.Logger {
 	return &SlogLogger{
-		logger: l.logger.With("error", err),
+		logger:         l.logger.With("error", err),
+		groupFieldName: l.groupFieldName,
 	}
 }
 
 func (l *SlogLogger) WithGroup(group string) logger.Logger {
 	return &SlogLogger{
-		logger: l.logger.With("_group", group),
+		logger:         l.logger.With(l.groupFieldName, group),
+		groupFieldName: l.groupFieldName,
 	}
 }
 
 // ConsoleHandler is a custom slog handler that outputs colored logs similar to zerolog's console output
 type ConsoleHandler struct {
-	opts   *slog.HandlerOptions
-	writer io.Writer
-	attrs  []slog.Attr
-	groups []string
+	opts           *slog.HandlerOptions
+	writer         io.Writer
+	attrs          []slog.Attr
+	groups         []string
+	groupFieldName string
 }
 
 // NewConsoleHandler creates a new console handler with colored output
-func NewConsoleHandler(w io.Writer, opts *slog.HandlerOptions) *ConsoleHandler {
+func NewConsoleHandler(w io.Writer, opts *slog.HandlerOptions, groupFieldName string) *ConsoleHandler {
 	if opts == nil {
 		opts = &slog.HandlerOptions{}
 	}
 	return &ConsoleHandler{
-		opts:   opts,
-		writer: w,
-		attrs:  []slog.Attr{},
-		groups: []string{},
+		opts:           opts,
+		writer:         w,
+		attrs:          []slog.Attr{},
+		groups:         []string{},
+		groupFieldName: groupFieldName,
 	}
 }
 
@@ -162,7 +174,7 @@ func (h *ConsoleHandler) Handle(_ context.Context, r slog.Record) error {
 
 	// Check handler-level attributes first
 	for _, attr := range h.attrs {
-		if attr.Key == "_group" {
+		if attr.Key == h.groupFieldName {
 			group = attr.Value.String()
 			break
 		}
@@ -171,7 +183,7 @@ func (h *ConsoleHandler) Handle(_ context.Context, r slog.Record) error {
 	// Check record-level attributes if not found
 	if group == "" {
 		r.Attrs(func(a slog.Attr) bool {
-			if a.Key == "_group" {
+			if a.Key == h.groupFieldName {
 				group = a.Value.String()
 				return false
 			}
@@ -188,16 +200,16 @@ func (h *ConsoleHandler) Handle(_ context.Context, r slog.Record) error {
 	// Message
 	buf.WriteString(r.Message)
 
-	// Handler-level attributes (skip _group as it's already displayed)
+	// Handler-level attributes (skip group field as it's already displayed)
 	for _, attr := range h.attrs {
-		if attr.Key != "_group" {
+		if attr.Key != h.groupFieldName {
 			appendAttr(&buf, attr, h.groups)
 		}
 	}
 
-	// Record attributes (skip _group as it's already displayed)
+	// Record attributes (skip group field as it's already displayed)
 	r.Attrs(func(a slog.Attr) bool {
-		if a.Key != "_group" {
+		if a.Key != h.groupFieldName {
 			appendAttr(&buf, a, h.groups)
 		}
 		return true
@@ -235,10 +247,11 @@ func (h *ConsoleHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	copy(newAttrs[len(h.attrs):], attrs)
 
 	return &ConsoleHandler{
-		opts:   h.opts,
-		writer: h.writer,
-		attrs:  newAttrs,
-		groups: h.groups,
+		opts:           h.opts,
+		writer:         h.writer,
+		attrs:          newAttrs,
+		groups:         h.groups,
+		groupFieldName: h.groupFieldName,
 	}
 }
 
@@ -252,10 +265,11 @@ func (h *ConsoleHandler) WithGroup(name string) slog.Handler {
 	newGroups[len(h.groups)] = name
 
 	return &ConsoleHandler{
-		opts:   h.opts,
-		writer: h.writer,
-		attrs:  h.attrs,
-		groups: newGroups,
+		opts:           h.opts,
+		writer:         h.writer,
+		attrs:          h.attrs,
+		groups:         newGroups,
+		groupFieldName: h.groupFieldName,
 	}
 }
 
@@ -291,63 +305,5 @@ func getLevelString(level slog.Level) string {
 		return "ERR"
 	default:
 		return "???"
-	}
-}
-
-// =============================================================================
-// JSONHandler - Wrapper around slog.JSONHandler that renames _group to group
-// =============================================================================
-
-type JSONHandler struct {
-	handler slog.Handler
-}
-
-func NewJSONHandler(w io.Writer, opts *slog.HandlerOptions) *JSONHandler {
-	return &JSONHandler{
-		handler: slog.NewJSONHandler(w, opts),
-	}
-}
-
-func (h *JSONHandler) Enabled(ctx context.Context, level slog.Level) bool {
-	return h.handler.Enabled(ctx, level)
-}
-
-func (h *JSONHandler) Handle(ctx context.Context, r slog.Record) error {
-	// Create a new record with _group renamed to group
-	var attrs []slog.Attr
-	r.Attrs(func(a slog.Attr) bool {
-		if a.Key == "_group" {
-			attrs = append(attrs, slog.String("group", a.Value.String()))
-		} else {
-			attrs = append(attrs, a)
-		}
-		return true
-	})
-
-	// Build new record
-	newRecord := slog.NewRecord(r.Time, r.Level, r.Message, r.PC)
-	newRecord.AddAttrs(attrs...)
-
-	return h.handler.Handle(ctx, newRecord)
-}
-
-func (h *JSONHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	// Rename _group to group in attributes
-	newAttrs := make([]slog.Attr, 0, len(attrs))
-	for _, a := range attrs {
-		if a.Key == "_group" {
-			newAttrs = append(newAttrs, slog.String("group", a.Value.String()))
-		} else {
-			newAttrs = append(newAttrs, a)
-		}
-	}
-	return &JSONHandler{
-		handler: h.handler.WithAttrs(newAttrs),
-	}
-}
-
-func (h *JSONHandler) WithGroup(name string) slog.Handler {
-	return &JSONHandler{
-		handler: h.handler.WithGroup(name),
 	}
 }

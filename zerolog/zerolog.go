@@ -11,14 +11,16 @@ import (
 
 // ZerologLogger wraps zerolog.Logger to implement the logger.Logger interface
 type ZerologLogger struct {
-	logger zerolog.Logger
+	logger         zerolog.Logger
+	groupFieldName string
 }
 
 // Config for creating a new ZerologLogger
 type Config struct {
-	Level  string    // "trace", "debug", "info", "warn", "error"
-	Format string    // "console" or "json"
-	Writer io.Writer // Output writer, defaults to os.Stdout
+	Level          string    // "trace", "debug", "info", "warn", "error"
+	Format         string    // "console" or "json"
+	Writer         io.Writer // Output writer, defaults to os.Stdout
+	GroupFieldName string    // Field name for groups, defaults to "_group"
 }
 
 // New creates a new ZerologLogger with the given configuration
@@ -31,6 +33,9 @@ func New(cfg Config) logger.Logger {
 	}
 	if cfg.Level == "" {
 		cfg.Level = "info"
+	}
+	if cfg.GroupFieldName == "" {
+		cfg.GroupFieldName = "_group"
 	}
 
 	var zlog zerolog.Logger
@@ -51,7 +56,8 @@ func New(cfg Config) logger.Logger {
 	zlog = zlog.Level(level)
 
 	return &ZerologLogger{
-		logger: zlog,
+		logger:         zlog,
+		groupFieldName: cfg.GroupFieldName,
 	}
 }
 
@@ -112,18 +118,21 @@ func (l *ZerologLogger) log(event *zerolog.Event, msg string, keysAndValues ...a
 
 func (l *ZerologLogger) With(key string, value any) logger.Logger {
 	return &ZerologLogger{
-		logger: l.logger.With().Interface(key, value).Logger(),
+		logger:         l.logger.With().Interface(key, value).Logger(),
+		groupFieldName: l.groupFieldName,
 	}
 }
 
 func (l *ZerologLogger) WithError(err error) logger.Logger {
 	return &ZerologLogger{
-		logger: l.logger.With().Err(err).Logger(),
+		logger:         l.logger.With().Err(err).Logger(),
+		groupFieldName: l.groupFieldName,
 	}
 }
 
 func (l *ZerologLogger) WithGroup(group string) logger.Logger {
 	return &ZerologLogger{
-		logger: l.logger.With().Str("group", group).Logger(),
+		logger:         l.logger.With().Str(l.groupFieldName, group).Logger(),
+		groupFieldName: l.groupFieldName,
 	}
 }
