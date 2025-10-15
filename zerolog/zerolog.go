@@ -102,6 +102,10 @@ func (l *ZerologLogger) Error(msg string, keysAndValues ...any) {
 	l.log(l.logger.Error(), msg, keysAndValues...)
 }
 
+func (l *ZerologLogger) Fatal(msg string, keysAndValues ...any) {
+	l.log(l.logger.Fatal(), msg, keysAndValues...)
+}
+
 func (l *ZerologLogger) log(event *zerolog.Event, msg string, keysAndValues ...any) {
 	// Add key-value pairs
 	for i := 0; i < len(keysAndValues); i += 2 {

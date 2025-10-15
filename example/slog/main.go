@@ -108,6 +108,7 @@ func main() {
 	Info("demonstrating logging features")
 
 	// Simple logging
+	defaultLogger.Trace("debug message", "detail", "some detail")
 	Debug("debug message", "detail", "some detail")
 	Info("info message", "count", 42)
 	Warn("warning message", "deprecated", "oldFeature")

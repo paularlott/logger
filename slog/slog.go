@@ -13,6 +13,9 @@ import (
 // Custom slog level for TRACE (below DEBUG which is -4)
 const LevelTrace = slog.Level(-8)
 
+// Custom slog level for FATAL (above ERROR which is 8)
+const LevelFatal = slog.Level(10)
+
 // SlogLogger wraps slog.Logger to implement the logger.Logger interface
 // SlogLogger wraps slog.Logger to implement the logger.Logger interface
 type SlogLogger struct {
@@ -46,11 +49,25 @@ func New(cfg Config) logger.Logger {
 	level := parseLevel(cfg.Level)
 	opts := &slog.HandlerOptions{
 		Level: level,
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			// Replace custom level names for TRACE and FATAL in JSON output
+			if a.Key == slog.LevelKey {
+				level := a.Value.Any().(slog.Level)
+				if level == LevelTrace {
+					return slog.String(slog.LevelKey, "TRACE")
+				} else if level == LevelFatal {
+					return slog.String(slog.LevelKey, "FATAL")
+				}
+			}
+			return a
+		},
 	}
 
 	var handler slog.Handler
 	if cfg.Format == "json" {
-		handler = slog.NewJSONHandler(cfg.Writer, opts)
+		handler = &JSONHandler{
+			handler: slog.NewJSONHandler(cfg.Writer, opts),
+		}
 	} else {
 		handler = NewConsoleHandler(cfg.Writer, opts, cfg.GroupFieldName)
 	}
@@ -73,6 +90,8 @@ func parseLevel(level string) slog.Level {
 		return slog.LevelWarn
 	case "error":
 		return slog.LevelError
+	case "fatal":
+		return LevelFatal
 	default:
 		return slog.LevelInfo
 	}
@@ -98,6 +117,11 @@ func (l *SlogLogger) Error(msg string, keysAndValues ...any) {
 	l.log(slog.LevelError, msg, keysAndValues...)
 }
 
+func (l *SlogLogger) Fatal(msg string, keysAndValues ...any) {
+	l.log(LevelFatal, msg, keysAndValues...)
+	os.Exit(1)
+}
+
 func (l *SlogLogger) log(level slog.Level, msg string, keysAndValues ...any) {
 	l.logger.Log(context.Background(), level, msg, keysAndValues...)
 }
@@ -120,6 +144,31 @@ func (l *SlogLogger) WithGroup(group string) logger.Logger {
 	return &SlogLogger{
 		logger:         l.logger.With(l.groupFieldName, group),
 		groupFieldName: l.groupFieldName,
+	}
+}
+
+// JSONHandler is a wrapper around slog.JSONHandler that properly formats TRACE and FATAL levels
+type JSONHandler struct {
+	handler slog.Handler
+}
+
+func (h *JSONHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	return h.handler.Enabled(ctx, level)
+}
+
+func (h *JSONHandler) Handle(ctx context.Context, r slog.Record) error {
+	return h.handler.Handle(ctx, r)
+}
+
+func (h *JSONHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &JSONHandler{
+		handler: h.handler.WithAttrs(attrs),
+	}
+}
+
+func (h *JSONHandler) WithGroup(name string) slog.Handler {
+	return &JSONHandler{
+		handler: h.handler.WithGroup(name),
 	}
 }
 
@@ -284,7 +333,7 @@ func getLevelColor(level slog.Level) string {
 		return "\033[32m" // Green
 	case slog.LevelWarn:
 		return "\033[33m" // Yellow
-	case slog.LevelError:
+	case slog.LevelError, LevelFatal:
 		return "\033[31m" // Red
 	default:
 		return "\033[0m" // Reset
@@ -303,6 +352,8 @@ func getLevelString(level slog.Level) string {
 		return "WRN"
 	case slog.LevelError:
 		return "ERR"
+	case LevelFatal:
+		return "FTL"
 	default:
 		return "???"
 	}

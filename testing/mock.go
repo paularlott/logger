@@ -71,6 +71,10 @@ func (m *MockLogger) Error(msg string, keysAndValues ...any) {
 	m.log("error", msg, keysAndValues...)
 }
 
+func (m *MockLogger) Fatal(msg string, keysAndValues ...any) {
+	m.log("fatal", msg, keysAndValues...)
+}
+
 func (m *MockLogger) With(key string, value any) logger.Logger {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
