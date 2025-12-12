@@ -13,6 +13,7 @@ import (
 type ZerologLogger struct {
 	logger         zerolog.Logger
 	groupFieldName string
+	groups         []string
 }
 
 // Config for creating a new ZerologLogger
@@ -58,6 +59,7 @@ func New(cfg Config) logger.Logger {
 	return &ZerologLogger{
 		logger:         zlog,
 		groupFieldName: cfg.GroupFieldName,
+		groups:         []string{},
 	}
 }
 
@@ -124,6 +126,7 @@ func (l *ZerologLogger) With(key string, value any) logger.Logger {
 	return &ZerologLogger{
 		logger:         l.logger.With().Interface(key, value).Logger(),
 		groupFieldName: l.groupFieldName,
+		groups:         l.groups,
 	}
 }
 
@@ -131,12 +134,16 @@ func (l *ZerologLogger) WithError(err error) logger.Logger {
 	return &ZerologLogger{
 		logger:         l.logger.With().Err(err).Logger(),
 		groupFieldName: l.groupFieldName,
+		groups:         l.groups,
 	}
 }
 
 func (l *ZerologLogger) WithGroup(group string) logger.Logger {
+	newGroups := append(l.groups, group)
+	groupValue := strings.Join(newGroups, ".")
 	return &ZerologLogger{
-		logger:         l.logger.With().Str(l.groupFieldName, group).Logger(),
+		logger:         l.logger.With().Str(l.groupFieldName, groupValue).Logger(),
 		groupFieldName: l.groupFieldName,
+		groups:         newGroups,
 	}
 }

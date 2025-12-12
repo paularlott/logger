@@ -66,7 +66,8 @@ func New(cfg Config) logger.Logger {
 	var handler slog.Handler
 	if cfg.Format == "json" {
 		handler = &JSONHandler{
-			handler: slog.NewJSONHandler(cfg.Writer, opts),
+			handler:        slog.NewJSONHandler(cfg.Writer, opts),
+			groupFieldName: cfg.GroupFieldName,
 		}
 	} else {
 		handler = NewConsoleHandler(cfg.Writer, opts, cfg.GroupFieldName)
@@ -142,14 +143,15 @@ func (l *SlogLogger) WithError(err error) logger.Logger {
 
 func (l *SlogLogger) WithGroup(group string) logger.Logger {
 	return &SlogLogger{
-		logger:         l.logger.With(l.groupFieldName, group),
+		logger:         l.logger.WithGroup(group),
 		groupFieldName: l.groupFieldName,
 	}
 }
 
 // JSONHandler is a wrapper around slog.JSONHandler that properly formats TRACE and FATAL levels
 type JSONHandler struct {
-	handler slog.Handler
+	handler        slog.Handler
+	groupFieldName string
 }
 
 func (h *JSONHandler) Enabled(ctx context.Context, level slog.Level) bool {
@@ -162,13 +164,15 @@ func (h *JSONHandler) Handle(ctx context.Context, r slog.Record) error {
 
 func (h *JSONHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	return &JSONHandler{
-		handler: h.handler.WithAttrs(attrs),
+		handler:        h.handler.WithAttrs(attrs),
+		groupFieldName: h.groupFieldName,
 	}
 }
 
 func (h *JSONHandler) WithGroup(name string) slog.Handler {
 	return &JSONHandler{
-		handler: h.handler.WithGroup(name),
+		handler:        h.handler.WithAttrs([]slog.Attr{slog.String(h.groupFieldName, name)}),
+		groupFieldName: h.groupFieldName,
 	}
 }
 
@@ -218,49 +222,24 @@ func (h *ConsoleHandler) Handle(_ context.Context, r slog.Record) error {
 	buf.WriteString(levelStr)
 	buf.WriteString("\033[0m ")
 
-	// Group in brackets if present (from handler attrs or record attrs)
-	var group string
-
-	// Check handler-level attributes first
-	for _, attr := range h.attrs {
-		if attr.Key == h.groupFieldName {
-			group = attr.Value.String()
-			break
-		}
-	}
-
-	// Check record-level attributes if not found
-	if group == "" {
-		r.Attrs(func(a slog.Attr) bool {
-			if a.Key == h.groupFieldName {
-				group = a.Value.String()
-				return false
-			}
-			return true
-		})
-	}
-
-	if group != "" {
+	// Group in brackets if present
+	if len(h.groups) > 0 {
 		buf.WriteString("\033[36m[")
-		buf.WriteString(group)
+		buf.WriteString(strings.Join(h.groups, "."))
 		buf.WriteString("]\033[0m ")
 	}
 
 	// Message
 	buf.WriteString(r.Message)
 
-	// Handler-level attributes (skip group field as it's already displayed)
+	// Handler-level attributes
 	for _, attr := range h.attrs {
-		if attr.Key != h.groupFieldName {
-			appendAttr(&buf, attr, h.groups)
-		}
+		appendAttr(&buf, attr, h.groups)
 	}
 
-	// Record attributes (skip group field as it's already displayed)
+	// Record attributes
 	r.Attrs(func(a slog.Attr) bool {
-		if a.Key != h.groupFieldName {
-			appendAttr(&buf, a, h.groups)
-		}
+		appendAttr(&buf, a, h.groups)
 		return true
 	})
 
