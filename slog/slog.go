@@ -5,7 +5,10 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/paularlott/logger"
 )
@@ -230,7 +233,7 @@ func (h *ConsoleHandler) Handle(_ context.Context, r slog.Record) error {
 	}
 
 	// Message
-	buf.WriteString(r.Message)
+	buf.WriteString(safe(r.Message))
 
 	// Handler-level attributes
 	for _, attr := range h.attrs {
@@ -266,7 +269,23 @@ func appendAttr(buf *strings.Builder, attr slog.Attr, groups []string) {
 	buf.WriteString(" \033[36m")
 	buf.WriteString(key)
 	buf.WriteString("\033[0m=")
-	buf.WriteString(attr.Value.String())
+	buf.WriteString(safe(attr.Value.String()))
+}
+
+// safe returns s unchanged, or quoted as slog's TextHandler would when it holds a character that is not printable
+// (a line break, an escape, a Unicode line separator), so that a value cannot end the line and start a forged one
+// or send escape sequences to the terminal. Invalid UTF-8 is quoted too (a stray byte such as 0x9b is a C1 control to
+// some terminals). Spaces are printable here: console values are not quoted for them.
+func safe(s string) string {
+	if !utf8.ValidString(s) {
+		return strconv.Quote(s)
+	}
+	for _, r := range s {
+		if !unicode.IsPrint(r) && r != ' ' {
+			return strconv.Quote(s)
+		}
+	}
+	return s
 }
 
 func (h *ConsoleHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
