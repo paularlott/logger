@@ -516,3 +516,5 @@ See LICENSE.txt
 ## Contributing
 
 This is a minimal interface by design. New methods should only be added if they're essential for all logging use cases.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to contribute and how to sign the Contributor License Agreement.
